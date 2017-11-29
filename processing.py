@@ -15,20 +15,25 @@ def isEnglish(s):
     else:
         return True
 
-def to_csv(filename = "train_x.txt"):
+def to_csv(filename = "train_x2.txt"):
     '''Combine each question as a str, rather than seperated words.
     '''
     with open(filename) as fr:
         with open("train_x_tab.csv",'w') as fw:
-            i = 0
-            for line in fr.readlines():
-                if i%10000==0:
-                    print("{}w pieces of data complete...".format(i/10000))
-                line = line.strip().split(' ')
-                qid = line.pop(0)
-                question = ' '.join(line)
-                fw.write(qid+'\t'+question+'\n')
-                i += 1
+            with open("train_y_tab.csv",'w') as fy:
+                qid = 1
+                i = 0
+                for line in fr.readlines():
+                    if i%10000==0:
+                        print("{}w pieces of data complete...".format(i/10000))
+                    line = line.strip().split('_')
+                    q1, q2, label = line[0], line[1], line[2]
+                    fw.write(str(qid)+'\t'+q1+'\n')
+                    qid += 1
+                    fw.write(str(qid)+'\t'+q2+'\n')
+                    qid += 1
+                    fy.write(str(qid-2)+'\t'+str(qid-1)+'\t'+label+'\n')
+                    i += 1
 
 def process(write_file_name='train_x2.txt', filename='./train.csv/train.csv', is_training=True):
     '''Separate words by whitespace.
@@ -84,5 +89,7 @@ def process(write_file_name='train_x2.txt', filename='./train.csv/train.csv', is
     print("{} pieces of data processed per second".format(len(train)/(time.time()-start_time)))
 
 # main
-process()
-process('test_x2.txt', './test.csv/test.csv', False)
+
+#process()
+#process('test_x2.txt', './test.csv/test.csv', False)
+to_csv()
