@@ -4,6 +4,7 @@ import numpy as np
 import time
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem.porter import *
+from nltk.corpus import words
 import re
 
 def isEnglish(s):
@@ -11,10 +12,9 @@ def isEnglish(s):
     try:
         s.encode(encoding='utf-8').decode('ascii')
     except UnicodeDecodeError:
-        return False
-    else:
-        return True
-
+        return False    
+    return True
+    
 def to_csv(filename = "train_x2.txt"):
     '''Combine each question as a str, rather than seperated words.
     '''
@@ -41,6 +41,7 @@ def process(write_file_name='train_x2.txt', filename='./train.csv/train.csv', is
     @format
     question_id words
     '''
+    print(len(words.words()))
     print('still loading......')
     train = pd.read_csv(filename)
 
@@ -49,6 +50,9 @@ def process(write_file_name='train_x2.txt', filename='./train.csv/train.csv', is
     #tokenizer = RegexpTokenizer(r'\w+')
     stemmer = PorterStemmer()
     err_encoding = 0
+
+    reg = re.compile('[^A-Za-z]')
+    voc = set(words.words())
 
     with open(write_file_name, 'w') as fw:
         sz = train.shape[0]
@@ -61,17 +65,16 @@ def process(write_file_name='train_x2.txt', filename='./train.csv/train.csv', is
             if not isEnglish(train['question2'][i]):
                 err_encoding += 1
                 continue
-            reg = re.compile('[^A-Za-z0-9]')
             
             try:
                 #qid_1 = train['qid1'][i]
-                q1 = reg.split(str(train['question1'][i]).lower())
+                q1 = [word for word in reg.split(str(train['question1'][i]).lower()) if word in voc]
                 #q1 = re.sub('[^A-Za-z ]','',str(train['question1'][i]))
                 q1 = [word for word in q1 if len(word)>0]
                 line_q1 = ' '.join(q1) + '_'
             
                 #qid_2 = train['qid2'][i]
-                q2 = reg.split(str(train['question2'][i]).lower())
+                q2 = [word for word in reg.split(str(train['question2'][i]).lower()) if word in voc]
                 #q2 = re.sub('[^A-Za-z ]','',str(train['question2'][i]))
                 q2 = [word for word in q2 if len(word)>0]
                 line_q2 = ' '.join(q2)
@@ -90,6 +93,6 @@ def process(write_file_name='train_x2.txt', filename='./train.csv/train.csv', is
 
 # main
 
-#process()
+process()
 #process('test_x2.txt', './test.csv/test.csv', False)
 to_csv()
