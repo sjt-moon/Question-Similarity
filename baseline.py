@@ -12,31 +12,22 @@ from pipeline import *
 # correct predictions: 501978
 # wrong answers: 289116
 
-def cosine_similarity_model(X_train, y_train, X_test, y_test):
-    '''There is no need to train anything. Use all of the data.'''
+def cosine_similarity_model(X, y):
+    '''There is no need to train anything. Use all of the data.
+    
+    Note that len(X) = 2*len(y)
+    '''
     print('calculating cosine similarity')
 
     correct, wrong = 0, 0
     i = 0
-    sz = X_train.shape[0]
-    while (i+1<sz):
+    sz = X.shape[0]
+    while (i<sz):
         if (i%(int(sz/10))==0):
             print("{}% training set completed".format(i*100/sz))
-        sim = cosine_similarity(X_train[i], X_train[i+1])[0][0]
+        sim = cosine_similarity(X[i], X[i+1])[0][0]
         pred = 1 if sim>=0.5 else 0
-        if pred==y_train[int(i/2)]:
-            correct += 1
-        else:
-            wrong += 1
-        i += 1
-    i = 0
-    sz = X_test.shape[0]
-    while (i+1<sz):
-        if (i%(int(sz/10))==0):
-            print("{}% test set completed".format(i*100/sz))
-        sim = cosine_similarity(X_test[i], X_test[i+1])[0][0]
-        pred = 1 if sim>=0.5 else 0
-        if pred==y_test[int(i/2)]:
+        if pred==y[int(i/2)]:
             correct += 1
         else:
             wrong += 1
@@ -44,8 +35,8 @@ def cosine_similarity_model(X_train, y_train, X_test, y_test):
     print("#correct predictions:\t{}\n#wrong answers:\t{}\naccuracy:\t{}".format(correct, wrong, correct/(correct+wrong)))
 
 def main():
-    xtr, ytr, xte, yte = get_tfidf_vectors()
-    cosine_similarity_model(xtr, ytr, xte, yte)
+    xtr, ytr, xva, yva, xte, yte = get_tfidf_vectors()
+    cosine_similarity_model(xte, yte)
 
 #main()
     
