@@ -6,48 +6,221 @@ from sklearn.decomposition import NMF
 import scipy as sp
 import numpy as np
 
-def get_tfidf_vectors(filename="train_x_tab.csv", split_ratio = 0.75):
+def split_dataset(fx="train_x_tab.csv", fy="train_y_tab.csv", ratios = [0.6,0.2,0.2]):
+    assert len(ratios)==3 and sum(ratios)==1
+
+    X = pd.read_csv(fx, sep='\t', names=['qid','question'])
+    y = pd.read_csv(fy, sep='\t', names=['q1','q2','label'])
+    assert len(X) == 2 * len(y)
+
+    valid_start_index = int(ratios[0] * len(y))
+    test_start_index = int(ratios[1] * len(y)) + valid_start_index
+    print(valid_start_index, test_start_index)
+
+    x_tr,x_va,x_te = X[:2*valid_start_index],X[2*valid_start_index:2*test_start_index],X[2*test_start_index:]
+    y_tr, y_va, y_te = y[:valid_start_index],y[valid_start_index:test_start_index],y[test_start_index:]
+    
+    assert len(x_tr) == 2 * len(y_tr)
+    assert len(x_va) == 2 * len(y_va)
+    assert len(x_te) == 2 * len(y_te)
+
+    return x_tr, y_tr, x_va, y_va, x_te, y_te
+
+def gen_raw_text_features(X_train, X_valid, X_test, tfidf, word2vec):
+    '''Use the original question-term matrix to generate pair-wise features.
+    
+    @para
+    X_train: dataframe, qid, question, 2 cols
+    X_test: same with above
+    Note that 2 adjacent x form a pair, which is a feature
+
+    @features (for each question)
+    #chars 
+    #terms
+    #all terms in 2 questions
+    #common terms for the 2 questions
+    #intersection ratios for 2 questions, i.e. how many common terms in each question
+    word2vec for each term in the question (pad zeroes at back to get a fixed length for all questions)
+    '''
+    feat_tr, col_tr = _gen_raw_feat_(X_train, tfidf, word2vec)
+    feat_va, col_va = _gen_raw_feat_(X_valid, tfidf, word2vec)
+    feat_te, col_te = _gen_raw_feat_(X_test, tfidf, word2vec)
+
+def _gen_raw_feat_(X, tfidf, word2vec, filename):
+    '''generate PAIRWISE features from raw text. (length would be half of before)
+    
+    @para
+    X: dataframe
+    col_names: name for each feature, easy to_dataframe
+
+    @return
+    since it's too large, write to csv and return none
+    '''
+    assert 'question' in X.columns
+
+    #word2vec = get_word2vec()
+    #print('word2vec ready!')
+
+    # average terms in a question is 8.81, 75% questions have less than 10 terms
+    # we maintain at most first max_terms_per_question terms
+    # max_terms_per_question = 20
+
+    #feat = []
+    with open(filename,'w') as fw:
+
+        col_names = ['num_chars_q1','num_chars_q2','num_terms_q1','num_terms_q2','common_sz','union_sz']
+        col_names += ['q1_'+str(i) for i in range(300)]
+        col_names += ['q2_'+str(i) for i in range(300)]
+        fw.write('\t'.join(col_names)+'\n')
+
+        sz = len(X)
+        print(sz)
+        i = 0
+        while i<sz:
+            if i%(int(sz/20))==0:
+                print('{}% complete'.format(int(i*100/sz)))
+
+            q1, q2 = X['question'][i], X['question'][i+1]
+            try:
+                q1 = set([w for w in q1.split()]) if len(q1)>0 else set()
+            except:
+                print("Err at {}:\t{}".format(i,q1))
+                q1 = set()
+            try:
+                q2 = set([w for w in q2.split()]) if len(q2)>0 else set()
+            except:
+                print("Err at {}:\t{}".format(i,q2))
+                q2 = set()
+
+            common = q1.intersection(q2)
+            union = q1.union(q2)
+    
+            num_chars_q1 = sum(len(w) for w in q1)
+            num_chars_q2 = sum(len(w) for w in q2)
+
+            num_terms_q1, num_terms_q2 = len(q1), len(q2)
+            common_sz, union_sz = len(common), len(union)
+
+            # same with num_terms
+            #r_common_q1 = common_sz / num_terms_q1
+            #r_common_q2 = common_sz / num_terms_q2
+
+            # sentence2vec 
+            v1 = sentence2vec(q1, tfidf, word2vec)
+            v2 = sentence2vec(q2, tfidf, word2vec)
+
+            line=[num_chars_q1,num_chars_q2,num_terms_q1,num_terms_q2,common_sz,union_sz]+list(v1)+list(v2)
+            line = [str(ele) for ele in line]
+            #feat.append(line)
+            fw.write('\t'.join(line)+'\n')
+
+            i += 2
+        print('{} pairs processed'.format(len(feat)))
+    return
+
+def get_word2vec():
+    '''Map term to word2vec -> dataframe'''
+    word2vec = pd.DataFrame(np.load('./embeddings.npy'))
+    
+    keys_embeddings = []
+    with open('./keys_embeddings.txt') as fr:
+        for line in fr.readlines():
+            keys_embeddings.append(line.strip().lower())
+    word2vec['word'] = keys_embeddings
+    return word2vec
+
+def get_word2vec_question(word2vec, question, max_terms_per_question):
+    '''get word2vec for each term of the question
+
+    @para
+    word2vec: dataframe
+    question: set of terms
+    max_terms_per_question: int
+    
+    @return
+    vec: max_terms_per_question x 300 matrix, 
+        each row is word2vec for the corresponding word in question
+    '''
+    assert 'word' in word2vec.columns
+
+    vec = []
+    words = str(question).split()
+    k = 0
+    for term in question:
+        if k>=max_terms_per_question:
+            break
+        word_vec = word2vec.loc[word2vec['word']==term].loc[:, word2vec.columns[:300]].values[0]
+        vec.append(word_vec)
+        k += 1
+    while k<max_terms_per_question:
+        vec.append(np.zeros(300))
+        k += 1
+    return np.array(vec)
+
+def sentence2vec(question, tfidf, word2vec):
+    '''get sentence2vec for each question. same length with word2vec
+    
+    @para
+    question: set of terms
+    tfidf: trained model to get weights for each term in each question
+    '''
+    assert 'word' in word2vec.columns
+
+    sentence = [' '.join(question),]
+    tf_vec = np.array(tfidf.transform(sentence).todense())[0]
+    denominator = sum(tf_vec)
+    vec = np.zeros(300)
+
+    for term in question:
+        if term not in tfidf.vocabulary_:
+            continue
+        index = tfidf.vocabulary_[term]
+        word_vec = word2vec.loc[word2vec['word']==term].loc[:, word2vec.columns[:300]].values[0]
+        #if len(word_vec)<=0:
+        #    continue
+        vec += tf_vec[index] * word_vec / denominator
+    return vec
+
+def get_tfidf_vectors(x_train, x_valid, x_test):
     '''Return a sparce tf-idf matrix M.
     
     M has #questions of rows and #words of columns
 
     @return
-    first 4 are train/test dataset
+    first 3 are train/valid/test dataset
     tf-idf model
+    col_names: feature name for each column
     '''
-    print('loading the data...')
+    assert 'qid' in x_train.columns
+    assert 'question' in x_train.columns
 
-    # split dataset into train/test sets
-    X = pd.read_csv(filename, sep='\t', names=['qid','question'])
-    sz_train_set = int(split_ratio * len(X))
-    if sz_train_set%2!=0:
-        sz_train_set += 1
-    train_questions, test_questions = X['question'][:sz_train_set], X['question'][sz_train_set:]
+    q_train, q_valid, q_test = x_train['question'], x_valid['question'], x_test['question']
 
     # train tfidf with training set
     tfidf_vectorizer = TfidfVectorizer()
-    tfidf_train_questions = tfidf_vectorizer.fit_transform(train_questions.values.astype('U'))
+    tfidf_train = tfidf_vectorizer.fit_transform(q_train.values.astype('U'))
 
-    # transform test set with tfidf model
-    tfidf_test_questions = tfidf_vectorizer.transform(test_questions.values.astype('U'))
+    # transform valid/test set with tfidf model
+    tfidf_valid = tfidf_vectorizer.transform(q_valid.values.astype('U'))
+    tfidf_test = tfidf_vectorizer.transform(q_test.values.astype('U'))
 
-    # split labels
-    # 2 adjacent rows for X relates to 1 row in labels (y)
-    Y = []
-    with open('train_y.txt') as fr:
-        for line in fr.readlines():
-            Y.append(int(line.strip().split(' ')[-1]))
-    y_train, y_test = Y[:int(sz_train_set/2)], Y[int(sz_train_set/2):]
+    # get column names, i.e. word for each col
+    # k: word, v: index
+    col_names = [(k,v) for k,v in tfidf_vectorizer.vocabulary_.items()]
+    col_names = sorted(col_names, key=lambda x:x[1])
+    col_names = [w for w,i in col_names]
 
-    return tfidf_train_questions, y_train, tfidf_test_questions, y_test, tfidf_vectorizer
+    return tfidf_train, tfidf_valid, tfidf_test, tfidf_vectorizer, col_names
 
-def generate_sentence_topics(X_train, X_test, k):
+def generate_sentence_topics(X_train, X_valid, X_test, k):
     '''Matrix factorization into k topics.
 
     @return
     W_train, lower dimensional representation for questions
+    W_valid
     W_test
     nmf_model
+    col_names
 
     @explain
     Use NMF (Non-negative matrix factorization), since elements in the 
@@ -59,39 +232,86 @@ def generate_sentence_topics(X_train, X_test, k):
     nmf_model = NMF(n_components=k, init='random', random_state=0)
     W_train = nmf_model.fit_transform(X_train)
     print('reconstruction err: {}'.format(nmf_model.reconstruction_err_))
+    W_valid = nmf_model.transform(X_valid)
     W_test = nmf_model.transform(X_test)
-    return W_train, W_test, nmf_model
 
-def to_dataframe(X_train, X_test, filename_tr='nmf_tr.csv', filename_te='nmf_te.csv'):
-    '''Tranform sparse matrix to dataframe.'''
-    train_sz = X_train.shape[0]
-    test_sz = X_test.shape[0]
-    is_sparce = sp.sparse.issparse(X_train)
+    col_names = ['topic_'+str(i) for i in range(k)]
+
+    return W_train, W_valid, W_test, nmf_model, col_names
+
+def to_dataframe(X, col_names, filename=None):
+    assert col_names and len(col_names)>0
+    if sp.sparse.issparse(X):
+        if not filename:
+            print('This is a sparse matrix, directly convert might cause memory error')
+            print('Please provide file name to write to disk')
+            return
+        _sparse_to_dataframe_(X,)
+        return
+    df = pd.DataFrame(np.array(X), columns=col_names)
+    return df
+
+def _sparse_to_dataframe_(X, col_names, filename='nmf_tr.csv'):
+    '''Tranform sparse matrix X to dataframe.
+    
+    @format
+    first col: question id, start from 1 (same as source)
+    next K cols: K features
+    '''
+    sz = X.shape[0]
+    assert sp.sparse.issparse(X)
 
     # write to csv
     i = 0
-    with open(filename_tr,'w') as ftr:
-        while (i<train_sz):
-            if (i%(int(train_sz/10))==0):
-                print('{}% complete on training set'.format(i*100/train_sz))
-            if is_sparce:
-                data = [str(d) for d in list(np.array(X_train[i].todense())[0])]
-            else:
-                data = [str(d) for d in list(np.array(X_train[i]))]
-            line = str(i+1) + '\t'.join(data) + '\n'
-            ftr.write(line)
+    with open(filename,'w') as fw:
+        first_line = 'id\t' + '\t'.join(col_names) + '\n'
+        fw.write(first_line)
+        while (i<sz):
+            if (i%(int(sz/10))==0):
+                print('{}% complete on training set'.format(i*100/sz))
+            data = [str(d) for d in list(np.array(X[i].todense())[0])]
+            line = str(i+1) + '\t' + '\t'.join(data) + '\n'
+            fw.write(line)
             i += 1
+    print('Now get dataframes with pd.read_csv for {}'.format(filename))
 
-    with open(filename_te,'w') as fte:
-        while (i<train_sz+test_sz):
-            if ((i-train_sz)%(int(test_sz/10))==0):
-                print('{}% complete on test set'.format((i-train_sz)*100/test_sz))
-            if is_sparce:
-                data = [str(d) for d in list(np.array(X_test[i-train_sz].todense())[0])]
-            else:
-                data = [str(d) for d in list(np.array(X_test[i-train_sz]))]
-            line = str(i+1) + '\t'.join(data) + '\n'
-            fte.write(line)
-            i += 1
-    print('Now get dataframes with pd.read_csv for {} and {}'.format(filename_tr, filename_te))
+def to_pairwise_dataframe(X):
+    '''Add some pairwise features.
+    
+    NOTE:
+    X[2i] & X[2i+1] -> a pair, y[i]
+    thus len(X) = 2 * len(y)
+    '''
+    # col names?
+    # what about sparse matrix?
+    sz, num_dim = len(X), len(X[0])
+    assert sz%2==0
+    X = np.array(X).reshape((int(sz/2), int(num_dim*2)))
+    return pd.DataFrame(X)
+
+def main():
+    # generate tfidf vectors for each question
+    xtr, ytr, xte, yte, tfidf_model = get_tfidf_vectors()
+
+    # get lower dimensional representations for questions
+    wtr, wte, nmf_model = generate_sentence_topics(xtr, xte, 30)
+
+    # store data for later usage
+    to_dataframe(wtr, wte)
+    with open('y_train.csv','w') as fw:
+        for i in range(len(ytr)):
+            line = str(ytr[i]) + '\n'
+            fw.write(line)
+    with open('y_test.csv','w') as fw:
+        for i in range(len(yte)):
+            line = str(yte[i]) + '\n'
+            fw.write(line)
+
+    # load data
+    wtr_df = pd.read_csv('./nmf_tr_30.csv', names=[i for i in range(30)], sep='\t')
+    wte_df = pd.read_csv('./nmf_te_30.csv', names=[j for j in range(30)], sep='\t')
+    ytr_df = pd.read_csv('y_train.csv', names=['label'])
+    yte_df = pd.read_csv('y_test.csv', names=['label'])
+
+
 
