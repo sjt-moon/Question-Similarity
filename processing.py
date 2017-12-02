@@ -4,6 +4,8 @@ import numpy as np
 import time
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem.porter import *
+from nltk.stem import WordNetLemmatizer 
+from nltk.stem.snowball import SnowballStemmer
 from nltk.corpus import words
 import re
 
@@ -35,24 +37,33 @@ def to_csv(filename = "train_x2.txt"):
                     fy.write(str(qid-2)+'\t'+str(qid-1)+'\t'+label+'\n')
                     i += 1
 
-def process(write_file_name='train_x2.txt', filename='./train.csv/train.csv', is_training=True):
+def process(write_file_name='train_x2.txt', filename='./train.csv/train.csv', is_training=True, stop_words='abnormal_words.txt'):
     '''Separate words by whitespace.
 
     @format
     question_id words
     '''
-    print(len(words.words()))
     print('still loading......')
     train = pd.read_csv(filename)
+
+    # stop words ready
+    stops = []
+    if stop_words:
+        with open(stop_words) as fstop:
+            for line in fstop.readlines():
+                word = line.strip().lower()
+                stops.append(word)
+    stops = set(stops)
 
     print('start working!')
     start_time = time.time()
     #tokenizer = RegexpTokenizer(r'\w+')
-    stemmer = PorterStemmer()
+    #lemmatizer = WordNetLemmatizer()
+    #stemmer = SnowballStemmer('english')
     err_encoding = 0
 
     reg = re.compile('[^A-Za-z]')
-    voc = set(words.words())
+    voc = set([w.lower() for w in words.words()])
 
     with open(write_file_name, 'w') as fw:
         sz = train.shape[0]
@@ -68,16 +79,22 @@ def process(write_file_name='train_x2.txt', filename='./train.csv/train.csv', is
             
             try:
                 #qid_1 = train['qid1'][i]
-                q1 = [word for word in reg.split(str(train['question1'][i]).lower()) if word in voc]
+                # lemmatizer.lemmatize(w)
+                q1 = [w.lower() for w in reg.split(str(train['question1'][i]))]
+                #q1 = [w.lower() for w in q1 if w.lower() in voc]
                 #q1 = re.sub('[^A-Za-z ]','',str(train['question1'][i]))
-                q1 = [word for word in q1 if len(word)>0]
+                q1 = [word for word in q1 if len(word)>0 and word in voc and word not in stops]
                 line_q1 = ' '.join(q1) + '_'
             
                 #qid_2 = train['qid2'][i]
-                q2 = [word for word in reg.split(str(train['question2'][i]).lower()) if word in voc]
+                q2 = [w.lower() for w in reg.split(str(train['question2'][i]))]
+                #q2 = [w.lower() for w in q2 if w.lower() in voc]
                 #q2 = re.sub('[^A-Za-z ]','',str(train['question2'][i]))
-                q2 = [word for word in q2 if len(word)>0]
+                q2 = [word for word in q2 if len(word)>0 and word in voc and word not in stops]
                 line_q2 = ' '.join(q2)
+
+                if len(q1)<=0 or len(q2)<=0:
+                    continue
 
                 if is_training:
                     line = line_q1 + line_q2 + '_' + str(train['is_duplicate'][i]) + '\n'
