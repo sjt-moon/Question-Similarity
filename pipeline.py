@@ -26,27 +26,7 @@ def split_dataset(fx="train_x_tab.csv", fy="train_y_tab.csv", ratios = [0.6,0.2,
 
     return x_tr, y_tr, x_va, y_va, x_te, y_te
 
-def gen_raw_text_features(X_train, X_valid, X_test, tfidf, word2vec):
-    '''Use the original question-term matrix to generate pair-wise features.
-    
-    @para
-    X_train: dataframe, qid, question, 2 cols
-    X_test: same with above
-    Note that 2 adjacent x form a pair, which is a feature
-
-    @features (for each question)
-    #chars 
-    #terms
-    #all terms in 2 questions
-    #common terms for the 2 questions
-    #intersection ratios for 2 questions, i.e. how many common terms in each question
-    word2vec for each term in the question (pad zeroes at back to get a fixed length for all questions)
-    '''
-    feat_tr, col_tr = _gen_raw_feat_(X_train, tfidf, word2vec)
-    feat_va, col_va = _gen_raw_feat_(X_valid, tfidf, word2vec)
-    feat_te, col_te = _gen_raw_feat_(X_test, tfidf, word2vec)
-
-def _gen_raw_feat_(X, tfidf, word2vec, filename):
+def gen_raw_feat(X, tfidf, word2vec, filename):
     '''generate PAIRWISE features from raw text. (length would be half of before)
     
     @para
@@ -55,6 +35,14 @@ def _gen_raw_feat_(X, tfidf, word2vec, filename):
 
     @return
     since it's too large, write to csv and return none
+
+    @features (for each question)
+    #chars 
+    #terms
+    #all terms in 2 questions
+    #common terms for the 2 questions
+    #intersection ratios for 2 questions, i.e. how many common terms in each question
+    product of sentence2vec
     '''
     assert 'question' in X.columns
 
@@ -69,14 +57,15 @@ def _gen_raw_feat_(X, tfidf, word2vec, filename):
     with open(filename,'w') as fw:
 
         col_names = ['num_chars_q1','num_chars_q2','num_terms_q1','num_terms_q2','common_sz','union_sz']
-        col_names += ['q1_'+str(i) for i in range(300)]
-        col_names += ['q2_'+str(i) for i in range(300)]
+        col_names += ['sen_product',]
         fw.write('\t'.join(col_names)+'\n')
 
         sz = len(X)
         print(sz)
         i = 0
         while i<sz:
+            if i%10==0:
+                print(i)
             if i%(int(sz/20))==0:
                 print('{}% complete'.format(int(i*100/sz)))
 
@@ -108,8 +97,9 @@ def _gen_raw_feat_(X, tfidf, word2vec, filename):
             # sentence2vec 
             v1 = sentence2vec(q1, tfidf, word2vec)
             v2 = sentence2vec(q2, tfidf, word2vec)
+            sen_product = v1.dot(v2)
 
-            line=[num_chars_q1,num_chars_q2,num_terms_q1,num_terms_q2,common_sz,union_sz]+list(v1)+list(v2)
+            line=[num_chars_q1,num_chars_q2,num_terms_q1,num_terms_q2,common_sz,union_sz,sen_product]
             line = [str(ele) for ele in line]
             #feat.append(line)
             fw.write('\t'.join(line)+'\n')
@@ -246,9 +236,10 @@ def to_dataframe(X, col_names, filename=None):
             print('This is a sparse matrix, directly convert might cause memory error')
             print('Please provide file name to write to disk')
             return
-        _sparse_to_dataframe_(X,)
+        _sparse_to_dataframe_(X,col_names,filename)
         return
     df = pd.DataFrame(np.array(X), columns=col_names)
+    print('Now you get a dataframe! congrats')
     return df
 
 def _sparse_to_dataframe_(X, col_names, filename='nmf_tr.csv'):
@@ -290,28 +281,30 @@ def to_pairwise_dataframe(X):
     return pd.DataFrame(X)
 
 def main():
-    # generate tfidf vectors for each question
-    xtr, ytr, xte, yte, tfidf_model = get_tfidf_vectors()
+    # This is an example for work flow
+    # all data are dataframes except tfidf matrix
 
+    # get raw text dataframe
+    raw_text = pd.read_csv('./train_x_tab.csv',sep='\t',names=['qid','question'])
+    print('size: ',len(raw_text))
+    raw_text.head()
+
+    xtr, ytr, xva, yva, xte, yte = pipeline.split_dataset()
+
+    # get tfidf matrix & model
+    # sparse matrix!
+    tf_tr, tf_va, tf_te, tfidf, words = pipeline.get_tfidf_vectors(xtr,xva,xte)
+
+    word2vec = pipeline.get_word2vec()
+
+    # get features
+    # write to file
+    pipeline.gen_raw_feat(xtr,tfidf,word2vec,'features.txt')
+    
     # get lower dimensional representations for questions
-    wtr, wte, nmf_model = generate_sentence_topics(xtr, xte, 30)
+    # topics k=30
+    w_tr, w_va, w_te, nmf, nmf_cols = pipeline.generate_sentence_topics(tf_tr,tf_va,tf_te,30)
 
-    # store data for later usage
-    to_dataframe(wtr, wte)
-    with open('y_train.csv','w') as fw:
-        for i in range(len(ytr)):
-            line = str(ytr[i]) + '\n'
-            fw.write(line)
-    with open('y_test.csv','w') as fw:
-        for i in range(len(yte)):
-            line = str(yte[i]) + '\n'
-            fw.write(line)
-
-    # load data
-    wtr_df = pd.read_csv('./nmf_tr_30.csv', names=[i for i in range(30)], sep='\t')
-    wte_df = pd.read_csv('./nmf_te_30.csv', names=[j for j in range(30)], sep='\t')
-    ytr_df = pd.read_csv('y_train.csv', names=['label'])
-    yte_df = pd.read_csv('y_test.csv', names=['label'])
 
 
 
