@@ -3,6 +3,7 @@ pd.options.mode.chained_assignment = None
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import NMF
+import distance
 import scipy as sp
 import numpy as np
 
@@ -258,6 +259,22 @@ def to_pairwise_cosine(x,col_name=['cos_sim']):
         ans.append(sim)
         i += 2
     return pd.DataFrame(np.array(ans), columns=col_name)
+
+def get_distance(X, col=['distance',]):
+    '''Get Levenshtein distance between pair of items. Dist(x[i],x[i+1]) -> feature'''
+    assert 'question' in X.columns
+
+    sz = len(X)
+    dist = []
+    i = 0
+    while i<sz:
+        if i%int(sz/10)==0:
+            print('{}%'.format(i*100/sz))
+        d = distance.nlevenshtein(str(X['question'][i]), str(X['question'][i+1]))
+        dist.append(d)
+        i += 2
+    df = pd.DataFrame(dist, columns=col)
+    return df
 
 def to_dataframe(X, col_names, filename=None):
     assert col_names and len(col_names)>0
