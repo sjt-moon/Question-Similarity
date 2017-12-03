@@ -21,8 +21,8 @@ def cosine_similarity_model(X, y):
     X: sparse matrices, tfdif matrices
     y: dataframe
     '''
-    assert sp.sparse.issparse(X)
     assert X.shape[0] == 2*len(y)
+    is_sparse = sp.sparse.issparse(X)
     print('calculating cosine similarity')
 
     correct, wrong = 0, 0
@@ -31,7 +31,10 @@ def cosine_similarity_model(X, y):
     while (i<sz):
         if (i%(int(sz/10))==0):
             print("{}% training set completed".format(i*100/sz))
-        sim = cosine_similarity(np.array(X[i].todense())[0], np.array(X[i+1].todense())[0])[0][0]
+        if is_sparse:
+            sim = cosine_similarity(np.array(X[i].todense())[0], np.array(X[i+1].todense())[0])[0][0]
+        else:
+            sim = cosine_similarity(np.array(X[i]), np.array(X[i+1]))[0][0]
         pred = 1 if sim>=0.5 else 0
         if pred==int(y.loc[int(i/2)]):
             correct += 1
